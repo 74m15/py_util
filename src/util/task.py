@@ -230,7 +230,7 @@ class TaskScheduler(object):
 
 class TaskTelegramController(object):
 
-    _token = "1114782046:AAHywSWLNUMd3EiABszw6-bixf9u7fC0ziU"
+    _token = "blablabla"
     
     def __init__(self, manager, logger):
         self._manager = manager
