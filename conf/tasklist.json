@@ -1,0 +1,28 @@
+{
+    "tasklist" : [
+        {
+            "name" : "date",
+            "type" : "subprocess",
+            "singleton" : true,
+            "command" : [ "sh", "-c", "date" ],
+            "schedule" : [
+                [1, "minute", ":05"],
+                [7, "seconds" ]
+            ]
+        },
+        
+        {
+            "name" : "echo",
+            "type" : "subprocess",
+            "singleton" : true,
+            "[command]" : [ "echo", "$[PYTHONPATH]" ]
+        },
+        
+        {
+            "name" : "echo_2",
+            "type" : "subprocess",
+            "[[singleton]]" : "bool(1)",
+            "[command]" : [ "echo", "$[CONFIGPATH]" ]
+        }
+    ]
+}
