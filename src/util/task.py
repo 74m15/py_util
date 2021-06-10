@@ -12,14 +12,19 @@ import threading
 import time
 
 from telegram.ext import Updater, CommandHandler
+from util.common import Wrap
+from util.security import security_decode
 
 TASK_SUBPROCESS = "subprocess"
 
 class TaskDef(object):
         
-    def __init__(self, name, type, logger):
+    def __init__(self, name, type, logger, description=None, conflict=None, args=None):
         self._name = name
         self._type = type
+        self._description = description
+        self._conflict = conflict
+        self._args = args
         self._logger = logger
         self._command = None
         self._schedule = dict()
@@ -78,15 +83,14 @@ class TaskDef(object):
             self._logger.debug()
             task_schedule.do(self)
     
-    def cancel_schedule(self):
-        pass
-    
     def __call__(self, *args, **kwargs):
         self._logger.info("Running task \"{0}\"".format(self.name))
         
         if self.type == TASK_SUBPROCESS:
             self._logger.debug("Invoking command: {0}".format(self.command))
-
+            
+            self.command.bind_context(kwargs)
+            
             subprocess.call(self.command)
 
             self._logger.info("Task \"{0} invoked".format(self.name))
@@ -229,14 +233,12 @@ class TaskScheduler(object):
             self._logger.info("TaskScheduler not running.")
 
 class TaskTelegramController(object):
-
-    _token = "1114782046:AAHywSWLNUMd3EiABszw6-bixf9u7fC0ziU"
     
-    def __init__(self, manager, logger):
+    def __init__(self, token, manager, logger):
         self._manager = manager
         self._logger = logger
         self._running = False
-        self._updater = Updater(TaskTelegramController._token, use_context=True)
+        self._updater = Updater(token, use_context=True)
         self._dispatcher = self._updater.dispatcher
         
         self._dispatcher.add_handler(CommandHandler("test", self.do_test))
@@ -265,7 +267,8 @@ class TaskTelegramController(object):
                 message = f"Running command '{name}'"
                 
                 self._logger.debug(message)
-                task()
+                kwargs = Wrap.prepare_context(context.args)
+                task(**kwargs)
             else:
                 message = f"No task found with name '{name}'"
                 
@@ -319,7 +322,7 @@ class TaskManager(object):
         self._init_task_list(config.tasklist)
         self._init_shell(bool(config.shell))
         self._init_scheduler(bool(config.scheduler))
-        self._init_telegram(bool(config.telegram))
+        self._init_telegram(config.telegram)
 
         self._logger.info("TaskManager initialized")
     
@@ -328,7 +331,7 @@ class TaskManager(object):
         for task in task_list:
             self._logger.debug("Preparing task: {0}".format(task))
 
-            task_def = TaskDef(task.name, task.type, self._logger)
+            task_def = TaskDef(task.name, task.type, self._logger, task.description, task.conflict, task.args)
             
             task.singleton = task.singleton
             
@@ -401,8 +404,11 @@ class TaskManager(object):
     def has_scheduler(self, value):
         self._has_scheduler = bool(value)
     
-    def _init_telegram(self, has_telegram):
-        self._telegram = TaskTelegramController(self, self._logger)
+    def _init_telegram(self, telegram):
+        token = security_decode(telegram.token)
+        has_telegram = telegram.started
+        
+        self._telegram = TaskTelegramController(token, self, self._logger)
         
         if self._context.get("telegram") is not None and self._context["telegram"]:
             self._logger.debug("Telegram Controller requested: activating")

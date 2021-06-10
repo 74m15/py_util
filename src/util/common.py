@@ -149,6 +149,21 @@ class Wrap(object):
         else:
             raise TypeError("Wrapped object is not a list")
     
+    @staticmethod
+    def prepare_context(args):
+        context = dict()
+        
+        for arg in args:
+            if (re.match("[A-Za-z0-9_]+=.+", arg)):
+                match = re.match("([A-Za-z0-9_]+)=(.+)", arg)
+                
+                context[match.group(1)] = match.group(2)
+            else:
+                context[arg] = True
+        
+        return context
+    
+    
     @classmethod
     def load(cls, url, root=None, context=None, evaluate=NO_EVAL):
         connection = urlopen(url)

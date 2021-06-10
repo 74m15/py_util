@@ -3,7 +3,9 @@
         {
             "name" : "date",
             "type" : "subprocess",
+            "description" : "Get the current date and time",
             "singleton" : true,
+            "conflict" : [ "sleep" ],
             "command" : [ "sh", "-c", "date" ],
             "schedule" : [
                 [1, "minute", ":05"],
@@ -14,8 +16,17 @@
         {
             "name" : "echo",
             "type" : "subprocess",
-            "singleton" : true,
-            "[command]" : [ "echo", "$[PYTHONPATH]" ]
+            "description" : "Echoes input argument",
+            "singleton" : false,
+            "args" : [
+                {
+                    "name" : "input",
+                    "type" : "str",
+                    "description" : "Text to echo",
+                    "default" : "Hello, world!"
+                }
+            ],
+            "[command]" : [ "echo", "${input}" ]
         },
         
         {

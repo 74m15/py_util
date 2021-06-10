@@ -7,7 +7,10 @@
         "util.task.TaskManager" : {
             "scheduler" : false,
             "shell" : true,
-            "telegram" : true,
+            "@telegram" : {
+                "[url]" : "file:$[CONFIGPATH]/telegram.json",
+                "root" : "telegram"
+            },
             
             "@tasklist" : {
                 "[url]" : "file:$[CONFIGPATH]/tasklist.json",

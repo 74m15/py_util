@@ -30,26 +30,9 @@ class Batch(object):
         
         self._init_log()
         
-        self.context = self._prepare_context(args)
+        self.context = Wrap.prepare_context(args)
         self.config.bind_context(self.context)
         self.batch = batch(config.batch_config[batch_name], self.context, self.logger)
-    
-    
-    def _prepare_context(self, args):
-        context = dict()
-        
-        for arg in args:
-            if (re.match("[A-Za-z0-9_]+=.+", arg)):
-                match = re.match("([A-Za-z0-9_]+)=(.+)", arg)
-                
-                context[match.group(1)] = match.group(2)
-            else:
-                context[arg] = True
-        
-        for (k,v) in context.items():
-            self.logger.debug("Context: \"{0}\" : \"{1}\"".format(k, v))
-        
-        return context
     
     
     def _init_log(self):
