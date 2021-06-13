@@ -4,7 +4,7 @@
             "name" : "date",
             "type" : "subprocess",
             "description" : "Get the current date and time",
-            "singleton" : true,
+            "singleton" : false,
             "conflict" : [ "sleep" ],
             "command" : [ "sh", "-c", "date" ],
             "schedule" : [
@@ -32,8 +32,42 @@
         {
             "name" : "echo_2",
             "type" : "subprocess",
-            "[[singleton]]" : "bool(1)",
+            "[[singleton]]" : "bool(0)",
             "[command]" : [ "echo", "$[CONFIGPATH]" ]
+        },
+        
+        {
+            "name" : "sleep",
+            "type" : "subprocess",
+            "description" : "Pause execution for n seconds",
+            "singleton" : true,
+            "conflict" : [ "sleep2" ],
+            "[command]" : [ "sleep", "${delay}" ],
+            "args" : [
+                {
+                    "name" : "delay",
+                    "type" : "float",
+                    "description" : "Time to sleep (seconds)",
+                    "default" : 15.0
+                }
+            ]
+        },
+        
+        {
+            "name" : "sleep2",
+            "type" : "subprocess",
+            "description" : "Pause execution for n seconds",
+            "singleton" : false,
+            "conflict" : [ "sleep" ],
+            "[command]" : [ "sleep", "${delay}" ],
+            "args" : [
+                {
+                    "name" : "delay",
+                    "type" : "int",
+                    "description" : "Time to sleep (seconds)",
+                    "default" : 30.0
+                }
+            ]
         }
     ]
 }
