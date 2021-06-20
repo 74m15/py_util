@@ -5,24 +5,27 @@ Created on Tue Feb 26 13:06:31 2019
 @author: CAPUANO-P
 """
 
+import operator
+
+_OP_MAP = {
+    "=" : operator.eq,
+    "<" : operator.lt,
+    "<=" : operator.le,
+    ">" : operator.gt,
+    ">=" : operator.ge,
+    "!=" : operator.ne
+}
+
 def filter(data, *conditions):
     
     def check(row, condition):
         if len(condition) == 2:
             return row[condition[0]] == condition[1]
         elif len(condition) == 3:
-            if (condition[1] == "="):
-                return row[condition[0]] == condition[2]
-            elif (condition[1] == "<"):
-                return row[condition[0]] < condition[2]
-            elif (condition[1] == "<="):
-                return row[condition[0]] <= condition[2]
-            elif (condition[1] == ">"):
-                return row[condition[0]] > condition[2]
-            elif (condition[1] == ">="):
-                return row[condition[0]] >= condition[2]
-            elif (condition[1] == "!="):
-                return row[condition[0]] != condition[2]
+            op = _OP_MAP.get(condition[1])
+            
+            if op:
+                return op(condition[0], condition[2])
             else:
                 raise RuntimeError("Wrong condition: {0}".format(condition))
         else:

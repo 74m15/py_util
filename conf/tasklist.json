@@ -9,7 +9,7 @@
             "command" : [ "sh", "-c", "date" ],
             "schedule" : [
                 [1, "minute", ":05"],
-                [7, "seconds" ]
+                [15, "seconds" ]
             ]
         },
         
@@ -18,22 +18,23 @@
             "type" : "subprocess",
             "description" : "Echoes input argument",
             "singleton" : false,
-            "args" : [
-                {
-                    "name" : "input",
+            "args" : {
+                "name" : {
                     "type" : "str",
-                    "description" : "Text to echo",
-                    "default" : "Hello, world!"
+                    "description" : "Person to greet",
+                    "default" : "Fred"
+                },
+                "from" : {
+                    "type" : "str",
+                    "description" : "Where is he from?",
+                    "default" : "Nowhere"
                 }
-            ],
-            "[command]" : [ "echo", "${input}" ]
-        },
-        
-        {
-            "name" : "echo_2",
-            "type" : "subprocess",
-            "[[singleton]]" : "bool(0)",
-            "[command]" : [ "echo", "$[CONFIGPATH]" ]
+            },
+            "[command]" : [ "sh", "-c", "echo `date` Hello ${name}, are you from ${from}?" ],
+            "schedule" : [
+                [1, "minute", ":15"],
+                [10, "seconds" ]
+            ]
         },
         
         {
@@ -43,14 +44,13 @@
             "singleton" : true,
             "conflict" : [ "sleep2" ],
             "[command]" : [ "sleep", "${delay}" ],
-            "args" : [
-                {
-                    "name" : "delay",
+            "args" : {
+                "delay" : {
                     "type" : "float",
                     "description" : "Time to sleep (seconds)",
                     "default" : 15.0
                 }
-            ]
+            }
         },
         
         {
@@ -60,14 +60,13 @@
             "singleton" : false,
             "conflict" : [ "sleep" ],
             "[command]" : [ "sleep", "${delay}" ],
-            "args" : [
-                {
-                    "name" : "delay",
-                    "type" : "int",
+            "args" : {
+                "delay" : {
+                    "type" : "float",
                     "description" : "Time to sleep (seconds)",
                     "default" : 30.0
                 }
-            ]
+            }
         }
     ]
 }
