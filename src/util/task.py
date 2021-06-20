@@ -37,7 +37,6 @@ class Task(object):
         self._args = options.get("args")
         self._command = options.get("command")
         
-#        self._schedule = dict()
         self._runnable = True
         
         self._init_default_args()
@@ -99,25 +98,6 @@ class Task(object):
     @runnable.setter
     def runnable(self, value):
         self._runnable = bool(value)
-    
-#    def has_schedule(self):
-#        return len(self._schedule) > 0
-#    
-#    def add_schedule(self, task_schedule):
-#        
-#        def get_key(schedule_):
-#            return f"every {schedule_.interval} {schedule_.unit} at {schedule_.at_time}"
-#        
-#        key = get_key(task_schedule)
-#        
-#        self._schedule[key] = task_schedule
-#    
-#    def do_schedule(self):
-#        self._logger.debug(f"Scheduling task {self.name}")
-#        
-#        for key, task_schedule in self._schedule.items():
-#            self._logger.debug()
-#            task_schedule.do(self)
     
     def __call__(self, *args, **kwargs):
         self._logger.info(f"Running task '{self.name}'")
@@ -288,6 +268,10 @@ class TaskTelegramController(object):
     s_ASK_TASK, s_ASK_ARGS, s_ASK_CONFIRM, s_RESULT = range(4)
     UD_RUN = "run"
     CB_RUN = "__run__"
+    CB_YES = "__yes__"
+    CB_NO = "__no__"
+    CB_BACK = "__back__"
+    CB_CANCEL = "__cancel__"
     
     def __init__(self, token, manager, logger):
         self._manager = manager
@@ -309,11 +293,7 @@ class TaskTelegramController(object):
                 ],
                 
                 TaskTelegramController.s_ASK_CONFIRM: [
-                    CallbackQueryHandler(self.do_run_ask_confirm, pattern="^yes$")
-                ],
-                
-                TaskTelegramController.s_RESULT: [
-                    CallbackQueryHandler(self.do_run_confirm)
+                    CallbackQueryHandler(self.do_run_ask_confirm)
                 ]
             },
                     
@@ -329,6 +309,28 @@ class TaskTelegramController(object):
     def running(self):
         return self._running
     
+    def do_run_init_task(self, task, update, context):
+        context.user_data[TaskTelegramController.UD_RUN]["task"] = task
+        
+        if task.args is None:
+            next = TaskTelegramController.s_ASK_CONFIRM
+            
+            context.user_data[TaskTelegramController.UD_RUN]["args"] = dict()
+            
+            self._prepare_do_run_ask_confirm(update, context)
+        else:
+            next = TaskTelegramController.s_ASK_ARGS
+            
+            args = dict()
+            context.user_data[TaskTelegramController.UD_RUN]["args"] = args
+            
+            for k,v in task.default_args.items():
+                args[k] = v
+            
+            self._prepare_do_run_ask_args(update, context)
+        
+        return next
+    
     def do_run_start(self, update, context):
         context.user_data[TaskTelegramController.UD_RUN] = dict()
         
@@ -340,32 +342,13 @@ class TaskTelegramController(object):
             task = self._manager.get_task(name)
             
             if task is not None:
-                self._logger.debug(f"/run command preparing to run task '{name}'")
-                
-                context.user_data[TaskTelegramController.UD_RUN]["task"] = task
-                
-                if task.args is None:
-                    next = TaskTelegramController.s_ASK_CONFIRM
-                    
-                    context.user_data[TaskTelegramController.UD_RUN]["args"] = dict()
-                    
-                    self._prepare_do_run_ask_confirm(update, context)
-                else:
-                    next = TaskTelegramController.s_ASK_ARGS
-                    
-                    args = dict()
-                    context.user_data[TaskTelegramController.UD_RUN]["args"] = args
-                    
-                    for k,v in task.default_args.items():
-                        args[k] = v
-                    
-                    self._prepare_do_run_ask_args(update, context)
+                next = self.do_run_init_task(task, update, context)
             else:
                 self._logger.debug(f"Task name '{name}' not found in task list")
                 
                 next = TaskTelegramController.s_ASK_TASK
                 
-                self._prepare_do_run_ask_task(f"Task '{name}' not found.", update, context)
+                self._prepare_do_run_ask_task(f"Task *{name}* not found\\.", update, context)
         else:
             self._logger.debug(f"/run command received no command: need to ask task")
             
@@ -381,14 +364,15 @@ class TaskTelegramController(object):
         keyboard = InlineKeyboardMarkup(
                 [[InlineKeyboardButton(text=name, callback_data=name) for name in sorted(self._manager.task_list.keys())]])
         
-        update.message.reply_text(text=message, reply_markup=keyboard)
+        update.message.reply_markdown_v2(text=message, reply_markup=keyboard)
     
     def do_run_ask_task(self, update, context):
         update.callback_query.answer()
         update.callback_query.message.edit_reply_markup()
-        update.callback_query.message.reply_text(text=f"You asked to run task '{update.callback_query.data}'")
         
-        # TO DO: implementare logica di selezione task e instradamento su gestione argomenti
+        task = self._manager.get_task(update.callback_query.data)
+        
+        return self.do_run_init_task(task, update, context)
     
     def  _prepare_do_run_ask_args(self, update, context):
         task = context.user_data[TaskTelegramController.UD_RUN]["task"]
@@ -410,7 +394,12 @@ class TaskTelegramController(object):
         
         keyboard = InlineKeyboardMarkup(keys)
         
-        update.message.reply_text(text="Choose one of the expected arguments", reply_markup=keyboard)
+        message = f"Edit arguments of task *{task.name}*"
+        
+        if update.callback_query is None:
+            update.message.reply_markdown_v2(text=message, reply_markup=keyboard)
+        else:
+            update.callback_query.message.reply_markdown_v2(text=message, reply_markup=keyboard)
     
     def do_run_ask_args(self, update, context):
         task = context.user_data[TaskTelegramController.UD_RUN]["task"]
@@ -435,7 +424,7 @@ class TaskTelegramController(object):
                 else:
                     delimiter = "\"" if isinstance(value, str) else ""
                     message = \
-                        f"Argument '*{arg}*': _{task.args[arg].description}_\n" \
+                        f"Argument *{arg}*: _{task.args[arg].description}_\n" \
                         f"Insert a value \\(expected type: *{task.args[arg].type}*\\): " \
                         f"current value is `{value}`"
                 
@@ -464,8 +453,8 @@ class TaskTelegramController(object):
             message = f"Do you confirm to run task *{task.name}* with no arguments?"
             
         keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(text="Yes", callback_data="yes"), 
-                 InlineKeyboardButton(text="No", callback_data="no")]])
+                [InlineKeyboardButton(text="Yes", callback_data=TaskTelegramController.CB_YES), 
+                 InlineKeyboardButton(text="No", callback_data=TaskTelegramController.CB_NO)]])
         
         if update.callback_query is None:
             update.message.reply_markdown_v2(text=message, reply_markup=keyboard)
@@ -475,73 +464,58 @@ class TaskTelegramController(object):
         return TaskTelegramController.s_ASK_CONFIRM
     
     def do_run_ask_confirm(self, update, context):
-        task = context.user_data[TaskTelegramController.UD_RUN]["task"]
-        args = context.user_data[TaskTelegramController.UD_RUN]["args"]
-        
-        result = self._manager.run_task(task, args)
-                
-        if isinstance(result, int):
-            if result == TASK_RUN_SINGLETON:
-                message = f"Task '{task.name}' is singleton and is running just now: cannot run again"
-            elif result == TASK_RUN_CONFLICT:
-                message = f"Task '{task.name}' cannot be run because another conflicting task is already running"
-            else:
-                message = f"Cannot run task '{task.name}' just now"
-        else:
-            message = f"Running command '{task.name}'"
-        
         update.callback_query.answer()
         update.callback_query.message.edit_reply_markup()
-        
-        update.callback_query.message.reply_text(text=message)
-        
-        del context.user_data[TaskTelegramController.UD_RUN]
-        
-        return ConversationHandler.END
-        
-    
-    def do_run_confirm(self, update, context):
-        pass 
+            
+        if update.callback_query.data in (TaskTelegramController.CB_YES, TaskTelegramController.CB_RUN):
+            task = context.user_data[TaskTelegramController.UD_RUN]["task"]
+            args = context.user_data[TaskTelegramController.UD_RUN]["args"]
+            
+            result = self._manager.run_task(task, args)
+                    
+            if isinstance(result, int):
+                if result == TASK_RUN_SINGLETON:
+                    message = f"Task *{task.name}* is singleton and is running just now: _cannot run again_"
+                elif result == TASK_RUN_CONFLICT:
+                    message = f"Task *{task.name}* cannot be run because another _conflicting task is already running_"
+                else:
+                    message = f"Cannot run task *{task.name}* just now"
+            else:
+                message = f"Running task *{task.name}*"
+            
+            update.callback_query.message.reply_markdown_v2(text=message)
+            
+            del context.user_data[TaskTelegramController.UD_RUN]
+            
+            return ConversationHandler.END
+        elif update.callback_query.data == TaskTelegramController.CB_NO:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(text="Run", callback_data=TaskTelegramController.CB_RUN), 
+                 InlineKeyboardButton(text="Back", callback_data=TaskTelegramController.CB_BACK),
+                 InlineKeyboardButton(text="Cancel", callback_data=TaskTelegramController.CB_CANCEL)]])
+            
+            message = "Do you want to *run* the task, go *back* and edit arguments or *cancel*?"
+            
+            update.callback_query.message.reply_markdown_v2(text=message, reply_markup=keyboard)
+        elif update.callback_query.data == TaskTelegramController.CB_CANCEL:
+            return self.do_run_cancel(update, context)
+        elif update.callback_query.data == TaskTelegramController.CB_BACK:
+            self._prepare_do_run_ask_args(update, context)
+            
+            return TaskTelegramController.s_ASK_ARGS
     
     def do_run_cancel(self, update, context):
         
         del context.user_data[TaskTelegramController.UD_RUN]
         
-        update.message.reply_text(text="No command will be run.")
+        message = "No command will be run."
+        
+        if update.callback_query is None:
+            update.message.reply_text(text=message)
+        else:
+            update.callback_query.message.reply_text(text=message)
         
         return ConversationHandler.END
-    
-    def do_run(self, update, context):
-        "Run a task by name."
-        
-        if len(context.args) > 0:
-            name = context.args[0]
-        
-            task = self._manager.get_task(name)
-            
-            if task is not None:
-                message = f"Running command '{name}'"
-                
-                self._logger.debug(message)
-                kwargs = Wrap.prepare_context(context.args)
-                
-                result = self._manager.run_task(task, kwargs)
-                
-                if isinstance(result, int):
-                    if result == TASK_RUN_SINGLETON:
-                        message = f"Task '{task.name}' is singleton and is running just now: cannot run again"
-                    elif result == TASK_RUN_CONFLICT:
-                        message = f"Task '{task.name}' cannot be run because another conflicting task is already running"
-                    else:
-                        message = f"Cannot run task '{task.name}' just now"
-            else:
-                message = f"No task found with name '{name}'"
-                
-                self._logger.error(message)
-        else:
-            message = "Expected syntax: /run taskname <args>"
-        
-        update.message.reply_text(text=message)
     
     def do_tasklist(self, update, context):
         "Print list of tasks."
