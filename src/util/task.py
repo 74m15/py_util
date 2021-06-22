@@ -12,9 +12,9 @@ import subprocess
 import threading
 import time
 
-from collections import defaultdict, ChainMap
+from collections import ChainMap, defaultdict
 from functools import partial
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, Filters
 from util.common import Wrap
 from util.security import security_decode
@@ -107,9 +107,11 @@ class Task(object):
             
             self.command.bind_context(ChainMap(kwargs, self._default_args))
             
-            subprocess.call(self.command)
+            ret_code = subprocess.call(self.command)
 
-            self._logger.info(f"Task '{self.name}' invoked")
+            self._logger.info(f"Task '{self.name}' invoked: return code is {ret_code}")
+            
+            return ret_code
 
 class TaskShell(cmd.Cmd):
     intro = "TaskManager runtime shell. Type 'help' or '?' for available commands.\n"
@@ -127,6 +129,9 @@ class TaskShell(cmd.Cmd):
     def do_run(self, arg):
         "Run a task by name."
         
+        def observer(run):
+            print(f"Task {run.id} completed: run_rc={run.rc}, run_ex={run.ex}")
+        
         args = [s.strip() for s in arg.split(" ")]
         
         name = args[0]
@@ -134,9 +139,14 @@ class TaskShell(cmd.Cmd):
         task = self._manager.get_task(name)
         
         if task is not None:
-            self._logger.debug(f"Running command {name}")
-            result = self._manager.run_task(task, kwargs)
+            run, future = self._manager.run_task(task, (observer, ), kwargs)
+            
+            print(f"Task {run.id} started")
+            
+            self._logger.debug(f"Running task {name}: {run.id}")
         else:
+            print(f"Task '{name}' not found")
+            
             self._logger.error(f"No task found with name '{name}'")
         
         return False
@@ -422,7 +432,6 @@ class TaskTelegramController(object):
                         f"Argument *{arg}*: _{task.args[arg].description}_\n" \
                         f"Insert a value \\(expected type: *{task.args[arg].type}*\\)"
                 else:
-                    delimiter = "\"" if isinstance(value, str) else ""
                     message = \
                         f"Argument *{arg}*: _{task.args[arg].description}_\n" \
                         f"Insert a value \\(expected type: *{task.args[arg].type}*\\): " \
@@ -464,6 +473,13 @@ class TaskTelegramController(object):
         return TaskTelegramController.s_ASK_CONFIRM
     
     def do_run_ask_confirm(self, update, context):
+        
+        def observer(run):
+            context.dispatcher.bot.send_message(
+                chat_id=update.callback_query.message.chat.id,
+                text=f"Task `{run.id}` completed: run\\_rc\\=`{run.rc}`, run\\_ex\\=`{run.ex}`",
+                parse_mode=ParseMode.MARKDOWN_V2)
+        
         update.callback_query.answer()
         update.callback_query.message.edit_reply_markup()
             
@@ -471,17 +487,17 @@ class TaskTelegramController(object):
             task = context.user_data[TaskTelegramController.UD_RUN]["task"]
             args = context.user_data[TaskTelegramController.UD_RUN]["args"]
             
-            result = self._manager.run_task(task, args)
+            run, future = self._manager.run_task(task, (observer,), args)
                     
-            if isinstance(result, int):
-                if result == TASK_RUN_SINGLETON:
+            if isinstance(future, int):
+                if future == TASK_RUN_SINGLETON:
                     message = f"Task *{task.name}* is singleton and is running just now: _cannot run again_"
-                elif result == TASK_RUN_CONFLICT:
+                elif future == TASK_RUN_CONFLICT:
                     message = f"Task *{task.name}* cannot be run because another _conflicting task is already running_"
                 else:
                     message = f"Cannot run task *{task.name}* just now"
             else:
-                message = f"Running task *{task.name}*"
+                message = f"Running task *{task.name}*: `{run.id}`"
             
             update.callback_query.message.reply_markdown_v2(text=message)
             
@@ -550,6 +566,69 @@ class TaskTelegramController(object):
         else:
             self._logger.info("TaskTelegramController not running.")
 
+class TaskRun(object):
+    
+    def __init__(self, task, start, end=None, rc=None, ex=None, extra=None):
+        self._task = task
+        self._start = start
+        self._end = end
+        self._rc = rc
+        self._ex = ex
+        self._extra = extra
+    
+    @property
+    def task(self):
+        return self._task
+    
+    @property
+    def start(self):
+        return self._start
+    
+    @property
+    def end(self):
+        return self._end
+    
+    @end.setter
+    def end(self, value):
+        self._end = value
+    
+    @property
+    def rc(self):
+        return self._rc
+    
+    @rc.setter
+    def rc(self, value):
+        self._rc = value
+    
+    @property
+    def ex(self):
+        return self._ex
+    
+    @ex.setter
+    def ex(self, value):
+        self._ex = value
+    
+    @property
+    def extra(self):
+        return self._extra
+    
+    @extra.setter
+    def extra(self, value):
+        self._extra = value
+    
+    @property
+    def id(self):
+        return f"{self.task.name}_{self.start:15.6f}"
+    
+    @property
+    def duration(self):
+        return (self.end - self.start) if self.end else None
+    
+    def __str__(self):
+        return \
+            f"TaskRun(task:{self.task.name}, id:{self.id}, start:{self.start}, end:{self.end}, " \
+            f"duration:{self.duration}, rc:{self.rc}, ex:{self.ex}, extra:{self.extra})"
+
 class TaskManager(object):
 
     def __init__(self, config, context, logger):
@@ -597,10 +676,8 @@ class TaskManager(object):
     
                             self._logger.debug(f"Task '{task.name}': added run time at {at_time}")
                         
-                        job.do(self.get_runner(task_def))
-                        
-#                        task_def.add_schedule(job)
-                    except:
+                        job.do(self.get_runner(task_def, None))
+                    except Exception as ex:
                         self._logger.error(f"ERROR: unit [{unit}] not valid!")
             
             self._task_list[task.name] = task_def
@@ -683,27 +760,50 @@ class TaskManager(object):
             if self._running_task[name] == 0:
                 del self._running_task[name]
     
-    def get_runner(self, task):
+    def get_runner(self, task, observers):
         
-        def composite(task, **kwargs):
+        def composite(task, run, observers, **kwargs):
             self._running_task[task.name] += 1
-
+            
+            run_rc = None
+            run_ex = None
+            
             try:            
-                return task(**kwargs)
+                run_rc = task(**kwargs)
+                
+                return run_rc
             except Exception as ex:
                 self._logger.warning(f"Task '{task.name} raised exception {type(ex)}: {ex}")
                 
+                run_ex = ex
+                
                 raise ex
             finally:
+                run.end = time.time()
+                run.rc = run_rc
+                run.ex = run_ex
+                
                 self._running_task[task.name] -= 1
                 
                 if self._running_task[task.name] == 0:
                     del self._running_task[task.name]
+                
+                if observers is not None:
+                    for observer in observers:
+                        try:
+                            observer(run)
+                        except Exception as ex:
+                            self._logger.warning( \
+                                f"Cannot notify observer {observer} for conclusion of run {run.id} " \
+                                f"with return code {run.rc} or raised exception {run.ex}: " \
+                                f"{ex}")
         
-        def runner(task, *args, **kwargs):
+        def runner(task, observers, *args, **kwargs):
+            run = TaskRun(task, time.time())
+            
             if task.singleton and self._running_task[task.name] > 0:
                 self._logger.warning(f"Task '{task.name}' is singleton and is running just now: cannot run again")
-            
+                
                 return TASK_RUN_SINGLETON
             
             if task.conflict is not None and len(task.conflict) > 0:
@@ -712,14 +812,14 @@ class TaskManager(object):
                     
                     return TASK_RUN_CONFLICT
             
-            future = self._pool.submit(composite, task=task, **kwargs)
+            future = self._pool.submit(composite, task, run, observers, **kwargs)
             
-            return future
+            return (run, future)
         
-        return partial(runner, task)
+        return partial(runner, task, observers)
     
-    def run_task(self, task, kwargs):
-        return self.get_runner(task)(**kwargs)
+    def run_task(self, task, observers, kwargs):
+        return self.get_runner(task, observers)(**kwargs)
     
     def task_status(self):
         self.refresh_status()
