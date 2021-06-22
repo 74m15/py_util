@@ -5,22 +5,29 @@ Created on Mon Dec 11 14:41:53 2017
 
 @author: pasquale
 """
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEText import MIMEText
-from email.mime.application import MIMEApplication
+from email import encoders
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
 
-from .common import services, security_decode
+from .common import evaluate_string
+from .security import security_decode
 
 import atexit
 import logging
 import os
 import smtplib
 
-# TODO: fix this global singleton variable
+class Template(object):
+    
+    def __init__(self, path):
+        with open(path, "rt") as f:
+            self._template = f.read()
+    
+    def render(self, **kwargs):
+        return evaluate_string(self._template, kwargs, False)
 
-EMAIL_SERVICE = "service.email"
-
-class EmailUtil(object):
+class MailManager(object):
     
     def __init__(self, use_mail, config, logger=None):
         self._use_mail = use_mail
@@ -31,11 +38,11 @@ class EmailUtil(object):
             if (self._use_mail):
                 self._smtp = smtplib.SMTP(config.smtp.server, config.smtp.port)
                 
+                self._smtp.ehlo()
+                
                 if (config.smtp.tls):
                     self._smtp.starttls()
                 
-                self._smtp.ehlo()
-                self._smtp.esmtp_features["auth"] = "LOGIN PLAIN"
                 self._smtp.login(
                     security_decode(str(config.smtp.username)), 
                     security_decode(str(config.smtp.password)))
@@ -43,10 +50,8 @@ class EmailUtil(object):
                 atexit.register(self._destroy_me)
             else:
                 self.logger.warning("Skipping SMTP connection")
-            
-            services[EMAIL_SERVICE] = self
         except Exception as ex:
-            self.logger.debug("Cannot open SMTP client connection")
+            self.logger.error("Cannot open SMTP client connection")
             
             raise Exception("Cannot connect to SMTP server", ex)
     
@@ -58,7 +63,6 @@ class EmailUtil(object):
         mime_type = "plain" if (not mail.mime) else mail.mime
         subject = mail.subject
                 
-        # TODO: some code to get JINJA2 template instance from pool
         body = template.render(**(dict() if context is None else context))
 
         msg = MIMEMultipart()
@@ -79,13 +83,16 @@ class EmailUtil(object):
 
             print(mail.attach, mail.attach[0], mail.attach[1])
             
-            if (isinstance(attachment_list, str) or isinstance(attachment_list, unicode)):
+            if isinstance(attachment_list, str):
                 attachment_list = [ attachment_list ]
             
             for attachment in attachment_list:
                 with open(attachment, "rb") as f:
-                    obj = MIMEApplication(f.read())
-                    obj.add_header("Content-Disposition", "attachment", filename="{0}".format(os.path.basename(attachment)))
+                    obj = MIMEBase("application", "octet-stream")
+                    obj.set_payload(f.read())
+                
+                obj.add_header("Content-Disposition", "attachment", filename="{0}".format(os.path.basename(attachment)))
+                encoders.encode_base64(obj)
                 
                 msg.attach(obj)
         
