@@ -81,8 +81,6 @@ class MailManager(object):
         if (mail.attach and self._use_mail):
             attachment_list = mail.attach
 
-            print(mail.attach, mail.attach[0], mail.attach[1])
-            
             if isinstance(attachment_list, str):
                 attachment_list = [ attachment_list ]
             

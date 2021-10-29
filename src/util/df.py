@@ -7,6 +7,8 @@ Created on Tue Feb 26 13:06:31 2019
 
 import operator
 
+from collections import OrderedDict
+
 _OP_MAP = {
     "=" : operator.eq,
     "<" : operator.lt,
@@ -16,7 +18,7 @@ _OP_MAP = {
     "!=" : operator.ne
 }
 
-def filter(data, *conditions):
+def filter_df(data, *conditions):
     
     def check(row, condition):
         if len(condition) == 2:
@@ -25,7 +27,7 @@ def filter(data, *conditions):
             op = _OP_MAP.get(condition[1])
             
             if op:
-                return op(condition[0], condition[2])
+                return op(row[condition[0]], row[condition[2]])
             else:
                 raise RuntimeError("Wrong condition: {0}".format(condition))
         else:
@@ -33,7 +35,7 @@ def filter(data, *conditions):
     
     return [row for row in data if all([check(row, condition) for condition in conditions])]
 
-def sort(data, *keys):
+def sort_df(data, *keys):
     
     def key(idx):    
         def inner_key(row):
@@ -61,7 +63,7 @@ def sort(data, *keys):
         
         return tmp
 
-def map(data, *maps):
+def map_df(data, *maps):
     if len(maps) == 0:
         return data
     else:
@@ -82,7 +84,7 @@ def map(data, *maps):
         
         return [ [new_maps[k](row[k]) for k in new_maps.keys()] for row in data ]
 
-def select(data, *keys):
+def select_df(data, *keys):
     if len(keys) == 0:
         return data
     else:
