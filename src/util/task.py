@@ -283,10 +283,14 @@ class TaskTelegramController(object):
     CB_BACK = "__back__"
     CB_CANCEL = "__cancel__"
     
-    def __init__(self, token, manager, logger):
+    def __init__(self, config, manager, logger):
+        self._users = config.users.to_object()
         self._manager = manager
         self._logger = logger
         self._running = False
+        
+        token = security_decode(config.token)
+        
         self._updater = Updater(token, use_context=True)
         self._dispatcher = self._updater.dispatcher
         
@@ -342,6 +346,15 @@ class TaskTelegramController(object):
         return next
     
     def do_run_start(self, update, context):
+        user = update.message.from_user.username
+        
+        if user not in self._users:
+            self._logger.error(f"User {user} not authorized")
+            
+            return ConversationHandler.END
+        else:
+            self._logger.info(f"Run request received from user {user}")
+        
         context.user_data[TaskTelegramController.UD_RUN] = dict()
         
         if len(context.args) > 0:
@@ -724,10 +737,9 @@ class TaskManager(object):
         self._has_scheduler = bool(value)
     
     def _init_telegram(self, telegram):
-        token = security_decode(telegram.token)
         has_telegram = telegram.started
         
-        self._telegram = TaskTelegramController(token, self, self._logger)
+        self._telegram = TaskTelegramController(telegram, self, self._logger)
         
         if self._context.get("telegram") is not None and self._context["telegram"]:
             self._logger.debug("Telegram Controller requested: activating")
